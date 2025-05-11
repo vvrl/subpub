@@ -1,6 +1,6 @@
 server:
-  port: 8080
+  port: "8080"
   shutdown_timeout: 5s # Время на завершение работы
 logging:
-  level: info
-  file_name: server.log
+  level: "info"
+  file_name: "./logger/server.log"

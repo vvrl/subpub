@@ -9,7 +9,7 @@ import (
 
 type Config struct {
 	Server struct {
-		Port    int       `yaml:"port"`
+		Port    string    `yaml:"port"`
 		Timeout time.Time `yaml:"shutdown_timeout"`
 	}
 	Log struct {
