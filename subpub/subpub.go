@@ -3,26 +3,19 @@ package subpub
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 )
 
-// MessageHandler is a callback function that processes messages delivered to subscribers
 type MessageHandler func(msg interface{})
 
 type Subscription interface {
-	// Unsubscribe will remove interest in the current subject subscription is for
 	Unsubscribe()
 }
 
 type SubPub interface {
-	// Subscribe creates an asynchronous queue subscriber on the given subject
 	Subscribe(subject string, cb MessageHandler) (Subscription, error)
-
-	// Publish publishes the msg argument to the given subject
 	Publish(subject string, msg interface{}) error
-
-	// Close will shutdown sub-pub system
-	// May be blocked by data delivery until the context is canceled
 	Close(ctx context.Context) error
 }
 
@@ -43,8 +36,6 @@ func (s *subscription) Unsubscribe() {
 	}
 
 	s.sp.mu.Lock()
-	defer s.sp.mu.Unlock()
-	defer close(s.sub.msgChan)
 
 	if subjectSubs, ok := s.sp.subscribers[s.subject]; ok {
 		delete(subjectSubs, s.sub)
@@ -52,6 +43,8 @@ func (s *subscription) Unsubscribe() {
 			delete(s.sp.subscribers, s.subject)
 		}
 	}
+	s.sp.mu.Unlock()
+	close(s.sub.msgChan)
 
 }
 
@@ -68,7 +61,7 @@ func (s *subPub) Subscribe(subject string, cb MessageHandler) (Subscription, err
 
 	if s.close {
 		s.mu.Unlock()
-		return nil, errors.New("subpub is stopped")
+		return nil, errors.New("subpub is already stopped for subscribe")
 	}
 
 	newSubcription := &subscription{
@@ -79,11 +72,6 @@ func (s *subPub) Subscribe(subject string, cb MessageHandler) (Subscription, err
 		subject: subject,
 		sp:      s,
 	}
-
-	// newSub := &subscriber{
-	// 	handler: cb,
-	// 	msgChan: make(chan interface{}, 32),
-	// }
 
 	if _, ok := s.subscribers[subject]; !ok {
 		s.subscribers[subject] = make(map[*subscriber]struct{})
@@ -112,15 +100,18 @@ func (s *subPub) Publish(subject string, msg interface{}) error {
 	defer s.mu.RUnlock()
 
 	if s.close {
-		return errors.New("subpub is stopped")
+		return errors.New("subpub is already stopped for publish")
 	}
 
 	for sub := range s.subscribers[subject] {
-		defer func() { // обработка паники на всякий случай, например если подписчик отписался
-			if r := recover(); r != nil {
-			}
-		}()
-		sub.msgChan <- msg
+		select {
+		case sub.msgChan <- msg:
+			// сообщение безприпятственно отправлено
+		default:
+			fmt.Print("failed sending message: subject ", subject)
+			// если есть какие-то проблемы с каналом, сообщение пропустится и не отправится
+		}
+
 	}
 
 	return nil
@@ -130,23 +121,34 @@ func (s *subPub) Close(ctx context.Context) error {
 	s.mu.Lock()
 	if s.close {
 		s.mu.Unlock()
-		return nil // Система уже закрыта
+		return errors.New("subPub is already closed")
 	}
 	s.close = true
 
-	s.mu.Unlock() // Освобождаем блокировку перед ожиданием WaitGroup
+	chanToClose := []chan interface{}{}
+
+	for _, subject := range s.subscribers {
+		for sub := range subject {
+			chanToClose = append(chanToClose, sub.msgChan)
+		}
+	}
+
+	s.mu.Unlock()
+
+	for _, ch := range chanToClose {
+		close(ch)
+	}
 
 	go func() {
-		s.wg.Wait()        // Ожидаем завершения всех горутин, запущенных Publish
-		close(s.closeChan) // Сигнализируем, что все завершилось
+		s.wg.Wait()
+		close(s.closeChan)
 	}()
 
 	select {
 	case <-s.closeChan:
-		return nil // Корректное завершение
+		return nil // все горутины корректно завершились
 	case <-ctx.Done():
-		// Контекст был отменен (например, по таймауту)
-		return ctx.Err()
+		return ctx.Err() // закрытие контекста
 	}
 }
 

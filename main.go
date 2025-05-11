@@ -3,23 +3,28 @@ package main
 import (
 	"context"
 	"fmt"
-	"time"
-
 	"subpub-vk/subpub"
 )
 
 func main() {
 	sp := subpub.NewSubPub()
 
-	sub, _ := sp.Subscribe("news", func(msg interface{}) {
-		fmt.Println("received sub1:", msg)
-	})
+	hand := func(msg interface{}) {
+		fmt.Println("received hand:", msg)
+	}
 
-	sp.Publish("news", "hello world")
+	_, _ = sp.Subscribe("news", hand)
 
-	sub.Unsubscribe()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	sp.Close(ctx)
+	sp.Publish("news", "new breaking news")
+
+	//sub2.Unsubscribe()
+
+	sp.Publish("sport", "football match is started")
+
+	//sub.Unsubscribe()
+	//ctx, _ := context.WithTimeout(context.Background(), time.Second)
+
+	//defer cancel()
+	sp.Close(context.Background())
 
 }
