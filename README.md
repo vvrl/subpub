@@ -2,7 +2,7 @@
 
 Для копирования репозитория применить git clone
 ```
-git clone https://github.com/vvrl/subpub-vk.git
+git clone https://github.com/vvrl/subpub.git
 ```
 
 # Библиотека subpub
